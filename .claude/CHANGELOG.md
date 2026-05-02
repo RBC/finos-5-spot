@@ -9,75 +9,52 @@ The format is based on the regulated environment requirements:
 
 ---
 
-## [2026-04-30 14:00] - Phases 5 + 6 of security audit: RBAC tightening + defence-in-depth docs
+## [2026-05-02 12:00] - warp 0.4.2 migration (PR #52 follow-up)
 
 **Author:** Erick Bourgeois
 
-### Changed (Phase 5 — RBAC tightening)
-- `deploy/deployment/rbac/clusterrole.yaml`: removed `update` verb from
-  the `nodes` rule. Audit of `src/reconcilers/` confirmed every Node
-  touchpoint uses `.get` or `.patch` only — cordon, reclaim-agent
-  label, applied taints, drain-related reads. Granting only the verbs
-  actually exercised reduces blast radius if the controller's
-  ServiceAccount token is compromised.
-- `deploy/deployment/rbac/clusterrole.yaml`: documented why the
-  `update` verb is **retained** on `coordination.k8s.io/leases` —
-  `kube_lease_manager` (the upstream leader-election library used in
-  `src/main.rs`) currently uses HTTP PUT semantics on lease renewal.
-  Dropping `update` would break leader election. Tracked alongside the
-  Phase 5 entry in the security audit roadmap; will be removed when
-  the upstream library switches to merge-patch.
-
-### Changed (Phase 6 — defence-in-depth + documentation)
-- `src/reconcilers/helpers.rs` (`add_machine_to_cluster`): added a
-  `debug_assert_eq!` at the top guarding the same-namespace ownerRef
-  contract (bootstrap/infra/Machine MUST be created in the SM's own
-  namespace; Kubernetes' GC silently ignores cross-namespace
-  ownerReferences). Rustdoc gained a new `# Invariants` section
-  explaining why the assertion exists and what would break without it.
-- `src/crd.rs` (`EmbeddedResource` rustdoc): expanded the doc comment
-  to document the pass-through trust boundary explicitly — the
-  reconciler validates the envelope (`apiVersion` group allowlist,
-  `kind`) but does NOT inspect provider-specific fields like
-  k0smotron's `cloudInit` or `RemoteMachine.address`. Operators in
-  multi-tenant clusters must layer a complementary policy.
-- `docs/src/concepts/scheduled-machine.md`: new "Security: Provider
-  payload pass-through" section before the "Related" links. Spells
-  out the trust boundary, names the high-risk fields per provider
-  (k0smotron cloudInit, RemoteMachine address), and gives three
-  concrete remediation options for multi-tenant operators (pre-stage
-  approved specs, layer CEL policy, scope `create` to trusted teams).
-- `docs/src/security/crd-attack-surface.md`: new page. Per-field
-  validation status and downstream sinks for every attacker-controllable
-  field on the CRD (spec + status), framed against the "namespace-scoped
-  tenant with `create scheduledmachines`" threat model. Marks
-  `bootstrapSpec.spec` and `infrastructureSpec.spec` as intentional
-  pass-throughs and points at the narrative section. Notes that the
-  status fields are no longer used for security-critical routing as of
-  Phase 3 of this audit.
-- `docs/src/security/index.md`: added the new page to the Documents
-  list.
-- `docs/mkdocs.yml`: registered the new page in the Security nav.
+### Changed
+- `Cargo.toml`: pin `warp = { version = "0.4", default-features = false, features = ["server"] }`.
+  warp 0.4 made every previously-default feature opt-in; we only need
+  `server` (used by `src/main.rs::run_metrics_server` and
+  `src/health.rs::start_health_server`). `default-features = false`
+  also drops `multipart`, `websocket`, and `test`, which we don't
+  use, shrinking the supply-chain surface visible to cargo-deny /
+  Grype / auto-VEX.
+- `src/health.rs`: every closure body that returned `&'static str`
+  now returns `String` (warp 0.4's `Reply` impl on `&str` is gated
+  to `&'static str` only and the if/else inference would otherwise
+  pick a non-'static lifetime). Final filter chain calls `.boxed()`
+  to type-erase into `BoxedFilter` — without it the filter type
+  carries a higher-ranked `AsRef<str>` bound from the new generic
+  `path::path<P: AsRef<str>>` signature, which propagates through
+  `tokio::spawn` and fails `Send + 'static`.
+- `src/main.rs`: `warp::serve(metrics.boxed())` for the same
+  HRTB / Send reason as health.rs.
+- `Cargo.lock`: regenerated (warp 0.3.7 → 0.4.2; drops the legacy
+  hyper 0.14 / http 0.2 / h2 0.3 / base64 0.21 / encoding_rs /
+  displaydoc duplicate-stack now that warp pulls hyper 1).
 
 ### Why
-Phase 5 of the 2026-04-25 security audit roadmap closes the over-broad
-`update` verb on `nodes` (a long-standing finding from the cluster-role
-audit). Phase 6 surfaces two latent invariants — the same-namespace
-ownerRef contract and the provider-payload pass-through trust
-boundary — that today are correct by convention but were not
-documented anywhere a future refactor would notice. Both now have a
-loud failure mode: the `debug_assert!` for the ownerRef, and a
-discoverable docs page for the pass-through.
+PR #52 (Dependabot) bumped warp 0.3 → 0.4; the upstream release is
+breaking (server/test feature-gated, hyper 1 underneath, narrower
+Reply bounds, generic `path()`). The bump is the unfinished tail of
+the auto-VEX Phase 3 work in `5spot-automated-vex-generation.md` —
+warp 0.3 sits on hyper 0.14 which is end-of-life upstream and visible
+to the supply-chain scanners tracked in
+`5spot-code-scanning-remediation.md`.
 
 ### Impact
-- [ ] Breaking change
-- [x] Requires cluster rollout (the controller's ClusterRole no
-      longer requests `update` on `nodes` — existing deployments
-      should `kubectl apply` the new manifest. No code-side change is
-      required; the controller already only uses verbs it is now
-      granted.)
+- [ ] Breaking change (no API surface change; internal-only)
+- [x] Requires cluster rollout (new binary)
 - [ ] Config change only
 - [ ] Documentation only
+
+### Verification
+- `cargo build` clean.
+- `cargo test`: 397 passed, 0 failed.
+- `cargo fmt --check`: clean.
+- `cargo clippy --all-targets -- -D warnings`: clean.
 
 ---
 
