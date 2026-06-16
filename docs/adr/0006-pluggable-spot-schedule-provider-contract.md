@@ -111,10 +111,10 @@ killSwitch  >  (schedule AND spotSchedule)  >  schedule-only / spotSchedule-only
 A reference is **Unresolved** when the provider CRD is not installed, the named
 object is absent, it has no `status.active`, or it carries a `Ready` condition
 whose status is **not `True`**. `Ready` is *recommended, not required*: a
-provider that **omits** `Ready` has its `status.active` taken as authoritative
-(resolved) — only a *present, non-`True`* `Ready` marks the reference
-unresolved, which is how a provider explicitly says "do not trust my `active`
-right now." On Unresolved, 5-Spot:
+provider that **omits** it has its `status.active` taken as authoritative —
+only a *present, non-`True`* `Ready` marks the reference unresolved (this
+resolves the §2 table's "`Ready=False` ⇒ unresolved" reading: absent ⇒
+authoritative). On Unresolved, 5-Spot:
 
 - sets a `SpotScheduleResolved=False` condition on the `ScheduledMachine` with
   a precise reason (`ProviderCRDNotInstalled`, `ProviderNotFound`,

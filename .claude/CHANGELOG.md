@@ -9,6 +9,114 @@ The format is based on the regulated environment requirements:
 
 ---
 
+## [2026-06-15 10:30] - Restore dropped spot-schedule metric functions (build fix)
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `src/metrics.rs`: Added the three spot-schedule metric definitions and
+  `record_*` functions that a `main` merge dropped while keeping their call sites
+  in `scheduled_machine.rs` and their tests in `metrics_tests.rs`:
+  `SPOT_SCHEDULE_RESOLUTIONS_TOTAL` / `record_spot_schedule_resolution`,
+  `SPOT_SCHEDULE_RESOLUTION_ERRORS_TOTAL` / `record_spot_schedule_resolution_error`,
+  `SPOT_SCHEDULE_TRANSITIONS_TOTAL` / `record_spot_schedule_transition`.
+
+### Why
+The crate failed to compile (`E0425: cannot find function …`) after the
+`spot-schdule-phase5` merge — the metric implementations were lost but their
+callers and unit tests survived. This restores them (the tests were already the
+RED spec), unblocking every CI job, including the new `validate-autovex` gate
+which compiles the crate via `cargo run`.
+
+### Impact
+- [ ] Breaking change
+- [x] Requires cluster rollout
+- [ ] Config change only
+- [ ] Documentation only
+
+---
+
+## [2026-06-15 10:00] - Spot-schedule docs: contract finalization + concept page (Phase 6)
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `docs/src/reference/spot-schedule-contract.md`: finalized — resolved the
+  `Ready` ambiguity (present non-`True` ⇒ unresolved; **absent ⇒ active
+  authoritative**), removed the open TODOs, documented exactly which status
+  fields 5-Spot keys off, and added a worked **"implement your own provider"**
+  walkthrough (a minimal `ManualSchedule` hello-world) plus links to the
+  reference provider guide/source. Status banner → stable/Accepted.
+- `docs/src/concepts/spot-schedule.md`: NEW concept page — why duck-typing over
+  more `spec.schedule` fields, referencing a provider, AND composition with
+  `killSwitch` precedence, the event-driven watch, and the fail-safe
+  hold-last-state behavior. Added to `docs/mkdocs.yml` nav.
+- `docs/src/concepts/scheduled-machine.md`: documented the optional `schedule`
+  and the new `spotSchedule` reference field (+ AND composition note).
+- `docs/adr/0006-...md`: §4 reworded to match the §2 table — resolved the
+  internal `Ready=False` vs `False/missing` inconsistency (absent ⇒ authoritative).
+
+### Why
+Phase 6 (final phase): make the contract implementable from the docs alone — a
+provider author can read the contract page + concept page and ship a conformant
+provider without reading 5-Spot's source.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires cluster rollout
+- [ ] Config change only
+- [x] Documentation only
+
+---
+
+## [2026-06-14 17:30] - CapitalMarketsSchedule reference provider controller (Phase 5)
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `src/providers/capital_markets.rs` (+ `_tests.rs`): NEW reference spot-schedule
+  provider. Pure calendar logic — `is_active_at` (holiday → closed; else must be
+  in a `sessions[*]` day+hour window, reusing `parse_day_ranges`/`parse_hour_ranges`;
+  `earlyCloses` truncates the day) and `next_transition` (hour-by-hour scan to the
+  next flip, bounded by `PROVIDER_TRANSITION_HORIZON_HOURS`). `reconcile` patches
+  `status.active`/`observedGeneration`/`lastTransitionTime`/`nextTransitionTime`
+  + a `Ready` condition (reason `SessionOpen`/`SessionClosed`) and **requeues
+  once at the next calendar boundary** (event-driven single timed requeue, no
+  polling, no network calls). `run()` builds the `Controller`.
+- `src/providers/mod.rs`, `src/lib.rs`: new `providers` module.
+- `src/bin/spot_schedule_capital_markets.rs`: NEW thin controller binary
+  (tracing + client + `/metrics` server + `capital_markets::run`).
+- `src/constants.rs`: `PROVIDER_TRANSITION_HORIZON_HOURS`,
+  `PROVIDER_FALLBACK_REQUEUE_SECS`, `PROVIDER_ERROR_REQUEUE_SECS`,
+  `REASON_CAPITAL_MARKETS_SESSION_OPEN/CLOSED`.
+- `src/metrics.rs`: `fivespot_capital_markets_active{namespace,name}` gauge +
+  `fivespot_capital_markets_transitions_total{namespace,name}` counter (+ record fns).
+- `deploy/spot-schedule-providers/capital-markets/`: NEW kustomization —
+  ServiceAccount, least-privilege ClusterRole (`get/list/watch` on
+  `capitalmarketsschedules`, `update/patch` on **only** `/status`) + binding, and
+  a hardened Deployment (non-root, RO-rootfs, caps dropped, seccomp). `trivy
+  config` clean (0 findings).
+- Tests: 13 calendar tests (mid-session/pre-open/post-close/weekend/holiday/
+  early-close, invalid tz, no-sessions; next-transition open→close, close→open,
+  weekend-skip, none). 627 lib tests green.
+- Docs: `docs/src/guides/capital-markets-schedule.md` (+ nav),
+  `docs/src/operations/monitoring.md` provider metrics + alert.
+
+### Why
+Phase 5 of the spot-schedule roadmap: the reference provider that makes the
+Phase 1 `CapitalMarketsSchedule` type *do* something — computing `status.active`
+from a declarative exchange calendar so a `ScheduledMachine.spec.spotSchedule`
+can follow market sessions. Producer side; independent of the consumer-side
+resolver/watch.
+
+### Impact
+- [ ] Breaking change
+- [x] Requires cluster rollout (apply `deploy/spot-schedule-providers/capital-markets/`)
+- [ ] Config change only
+- [ ] Documentation only
+
+---
+
 ## [2026-06-14 14:30] - Spot-schedule RBAC + admission + threat model (Phase 4)
 
 **Author:** Erick Bourgeois
