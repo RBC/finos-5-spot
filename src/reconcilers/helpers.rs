@@ -46,10 +46,11 @@ use crate::constants::{
     API_VERSION_FULL, CAPI_CLUSTER_NAME_LABEL, CAPI_GROUP, CAPI_RESOURCE_MACHINES,
     CONDITION_STATUS_TRUE, CONDITION_TYPE_READY, DEFAULT_INSTANCE_ID, ENV_OPERATOR_INSTANCE_ID,
     ERROR_REQUEUE_SECS, FINALIZER_CLEANUP_TIMEOUT_SECS, FINALIZER_SCHEDULED_MACHINE,
-    MAX_BACKOFF_SECS, MAX_CLUSTER_NAME_LEN, MAX_DURATION_SECS, MAX_KILL_IF_COMMANDS_COUNT,
-    MAX_KILL_IF_COMMAND_LEN, MAX_RECONCILE_RETRIES, PHASE_ACTIVE, PHASE_ERROR, PHASE_INACTIVE,
-    PHASE_SHUTTING_DOWN, PHASE_TERMINATED, POD_EVICTION_GRACE_PERIOD_SECS, RBAC_VERB_CREATE,
-    REASON_GRACE_PERIOD, REASON_KILL_SWITCH, REASON_RECONCILE_SUCCEEDED, RESERVED_LABEL_PREFIXES,
+    HTTP_ALREADY_EXISTS, HTTP_NOT_FOUND, HTTP_TOO_MANY_REQUESTS, MAX_BACKOFF_SECS,
+    MAX_CLUSTER_NAME_LEN, MAX_DURATION_SECS, MAX_KILL_IF_COMMANDS_COUNT, MAX_KILL_IF_COMMAND_LEN,
+    MAX_RECONCILE_RETRIES, PHASE_ACTIVE, PHASE_ERROR, PHASE_INACTIVE, PHASE_SHUTTING_DOWN,
+    PHASE_TERMINATED, POD_EVICTION_GRACE_PERIOD_SECS, RBAC_VERB_CREATE, REASON_GRACE_PERIOD,
+    REASON_KILL_SWITCH, REASON_RECONCILE_SUCCEEDED, RESERVED_LABEL_PREFIXES,
     SCHEDULED_MACHINE_LABEL, TIMER_REQUEUE_SECS,
 };
 use crate::crd::{Condition, NodeRef, ScheduledMachine, ScheduledMachineStatus};
@@ -1574,7 +1575,7 @@ async fn create_dynamic_resource(
         // Active-phase work (node-taint reconciliation, status projection, …). This
         // surfaced on the k0smotron tier as Flag 1 (worker joins) passing but Flag 2
         // (node carries the spot taint) never happening.
-        Err(kube::Error::Api(ae)) if ae.code == 409 => {
+        Err(kube::Error::Api(ae)) if ae.code == HTTP_ALREADY_EXISTS => {
             debug!(kind = %kind, "resource already exists; treating create as idempotent success");
             Ok(())
         }
@@ -1630,7 +1631,7 @@ async fn delete_dynamic_resource(
             info!(kind = %kind, name = %name, "Resource deletion initiated");
             Ok(())
         }
-        Err(kube::Error::Api(e)) if e.code == 404 => {
+        Err(kube::Error::Api(e)) if e.code == HTTP_NOT_FOUND => {
             debug!(kind = %kind, name = %name, "Resource already deleted or does not exist");
             Ok(())
         }
@@ -1686,7 +1687,7 @@ pub async fn remove_machine_from_cluster(
         Ok(_) => {
             info!(resource = %name, "CAPI Machine deletion initiated");
         }
-        Err(kube::Error::Api(e)) if e.code == 404 => {
+        Err(kube::Error::Api(e)) if e.code == HTTP_NOT_FOUND => {
             debug!(resource = %name, "CAPI Machine already deleted or does not exist");
         }
         Err(e) => {
@@ -1792,7 +1793,7 @@ pub async fn fetch_capi_machine(
         Api::namespaced_with(client.clone(), namespace, &ar);
     match machines.get(machine_name).await {
         Ok(m) => Ok(Some(m)),
-        Err(kube::Error::Api(e)) if e.code == 404 => {
+        Err(kube::Error::Api(e)) if e.code == HTTP_NOT_FOUND => {
             debug!(machine = %machine_name, "Machine not found");
             Ok(None)
         }
@@ -2142,11 +2143,11 @@ async fn evict_pod(
             debug!(pod = %pod_name, namespace = %pod_namespace, "Pod eviction initiated");
             record_pod_eviction(true);
         }
-        Err(kube::Error::Api(e)) if e.code == 404 => {
+        Err(kube::Error::Api(e)) if e.code == HTTP_NOT_FOUND => {
             debug!(pod = %pod_name, namespace = %pod_namespace, "Pod already deleted");
             record_pod_eviction(true);
         }
-        Err(kube::Error::Api(e)) if e.code == 429 => {
+        Err(kube::Error::Api(e)) if e.code == HTTP_TOO_MANY_REQUESTS => {
             warn!(pod = %pod_name, namespace = %pod_namespace, "Pod eviction blocked by PDB (HTTP 429)");
             record_pod_eviction(false);
             return Err(ReconcilerError::CapiError(format!(
@@ -2960,7 +2961,7 @@ pub async fn reconcile_reclaim_agent_provision(
                     "Deleted per-node reclaim-agent ConfigMap"
                 );
             }
-            Err(kube::Error::Api(e)) if e.code == 404 => {
+            Err(kube::Error::Api(e)) if e.code == HTTP_NOT_FOUND => {
                 debug!(
                     node = %node_name,
                     configmap = %cm_name,
@@ -3574,7 +3575,7 @@ pub async fn reconcile_node_taints(
     let nodes: Api<Node> = Api::all(client.clone());
     let node = match nodes.get(input.node_name).await {
         Ok(n) => n,
-        Err(kube::Error::Api(e)) if e.code == 404 => {
+        Err(kube::Error::Api(e)) if e.code == HTTP_NOT_FOUND => {
             debug!(node = %input.node_name, "Node not materialised yet — NoNodeYet");
             return Ok(NodeTaintReconcileOutcome::NoNodeYet);
         }

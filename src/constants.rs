@@ -17,6 +17,7 @@
 //! - Operator instance environment variables
 //! - Security constraints (`MAX_DURATION_SECS`, `RESERVED_LABEL_PREFIXES`, …)
 
+use http::StatusCode;
 use std::sync::OnceLock;
 
 // ============================================================================
@@ -46,6 +47,27 @@ pub const SPOT_SCHEDULE_API_GROUP: &str = "spotschedules.5spot.finos.org";
 /// Initial served version of the reference provider CRDs in
 /// [`SPOT_SCHEDULE_API_GROUP`] (e.g. `CapitalMarketsSchedule`).
 pub const SPOT_SCHEDULE_API_VERSION: &str = "v1alpha1";
+
+// ============================================================================
+// HTTP status codes (Kubernetes API error matching)
+// ============================================================================
+//
+// `kube::core::ErrorResponse::code` is a bare `u16`. Rather than compare it
+// against magic numbers at every call site, name the few statuses we branch on.
+// The numeric values are sourced from `http::StatusCode` (a `const fn`), so the
+// literal `409`/`404`/`429` lives only inside the `http` crate, never here —
+// satisfying the "no magic numbers in source" rule for these branches too.
+
+/// HTTP 409 Conflict — Kubernetes returns this for a create whose name already
+/// exists (status reason `AlreadyExists`). Treated as idempotent success.
+pub const HTTP_ALREADY_EXISTS: u16 = StatusCode::CONFLICT.as_u16();
+
+/// HTTP 404 Not Found — the referenced object is absent (already deleted, never
+/// created, or garbage-collected). Treated as a benign no-op on delete/get.
+pub const HTTP_NOT_FOUND: u16 = StatusCode::NOT_FOUND.as_u16();
+
+/// HTTP 429 Too Many Requests — the API server is throttling us; back off.
+pub const HTTP_TOO_MANY_REQUESTS: u16 = StatusCode::TOO_MANY_REQUESTS.as_u16();
 
 // ============================================================================
 // Resource Names
@@ -808,3 +830,25 @@ pub const ALLOWED_INFRASTRUCTURE_API_GROUPS: &[&str] =
 /// to `create` each resource type so an RBAC gap surfaces as a clear
 /// `PermissionDenied` error instead of an opaque 403 mid-creation.
 pub const RBAC_VERB_CREATE: &str = "create";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pin each HTTP-status constant to the correct `StatusCode` variant. A refactor
+    /// that swapped, say, `CONFLICT` for `NOT_FOUND` would silently break idempotent
+    /// create / benign-delete handling — this catches that. No bare numeric literals:
+    /// the canonical values live in the `http` crate.
+    #[test]
+    fn http_status_constants_map_to_correct_variants() {
+        assert_eq!(HTTP_ALREADY_EXISTS, StatusCode::CONFLICT.as_u16());
+        assert_eq!(HTTP_NOT_FOUND, StatusCode::NOT_FOUND.as_u16());
+        assert_eq!(
+            HTTP_TOO_MANY_REQUESTS,
+            StatusCode::TOO_MANY_REQUESTS.as_u16()
+        );
+        // The three must be distinct, else a guard would match the wrong branch.
+        assert_ne!(HTTP_ALREADY_EXISTS, HTTP_NOT_FOUND);
+        assert_ne!(HTTP_NOT_FOUND, HTTP_TOO_MANY_REQUESTS);
+    }
+}

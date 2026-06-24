@@ -42,7 +42,7 @@ use k8s_openapi::api::core::v1::Secret;
 use kube::{config::Kubeconfig, Api, Client, ResourceExt};
 use tracing::{debug, info, warn};
 
-use crate::constants::{CHILD_CLIENT_CACHE_CAP, K8S_API_TIMEOUT_SECS};
+use crate::constants::{CHILD_CLIENT_CACHE_CAP, HTTP_NOT_FOUND, K8S_API_TIMEOUT_SECS};
 use crate::crd::ScheduledMachine;
 use crate::metrics::{record_child_kubeconfig_error, record_child_kubeconfig_resolution};
 use crate::reconcilers::ReconcilerError;
@@ -361,7 +361,7 @@ impl ChildClientCache {
         let secrets: Api<Secret> = Api::namespaced(mgmt_client.clone(), namespace);
         let secret = match secrets.get(secret_name).await {
             Ok(s) => s,
-            Err(kube::Error::Api(e)) if e.code == 404 => {
+            Err(kube::Error::Api(e)) if e.code == HTTP_NOT_FOUND => {
                 if explicit {
                     return Err(ReconcilerError::ChildClusterUnreachable {
                         namespace: namespace.to_string(),

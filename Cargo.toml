@@ -70,6 +70,9 @@ prometheus = { version = "0.14", features = ["process"] }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
+# Canonical HTTP status codes (used in src/constants.rs to name the Kubernetes
+# API error statuses we branch on, instead of hardcoding 404/409/429).
+http = "1"
 tower = "0.5"
 regex = "1"
 lazy_static = "1.5"
@@ -105,7 +108,6 @@ mockall = "0.14"
 test-log = "0.2"
 tempfile = "3"
 tower-test = "0.4"
-http = "1"
 # Used by src/reconcilers/child_client_tests.rs to build base64-encoded
 # Secret payloads for the tower-test mock server. base64 0.22 is already
 # in the dependency graph transitively (kube / k8s-openapi pull it).

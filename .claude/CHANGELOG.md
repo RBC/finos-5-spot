@@ -9,6 +9,32 @@ The format is based on the regulated environment requirements:
 
 ---
 
+## [2026-06-24 11:30] - Name the HTTP status codes used in API-error matching (no magic 404/409/429)
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `src/constants.rs`: new `HTTP_ALREADY_EXISTS` (409), `HTTP_NOT_FOUND` (404) and
+  `HTTP_TOO_MANY_REQUESTS` (429), each defined as `http::StatusCode::<VARIANT>.as_u16()`
+  so the numeric literal lives only in the `http` crate, never in 5-Spot source. +1 unit
+  test pinning each constant to the correct `StatusCode` variant.
+- `src/reconcilers/{helpers,child_client,scheduled_machine}.rs`: replaced all 9
+  `e.code == 404|409|429` match guards with the named constants.
+- `Cargo.toml`: promoted `http` from `[dev-dependencies]` to `[dependencies]` (already
+  in the tree transitively; now used by `src/constants.rs`).
+
+### Why
+`constants.rs` mandates "no magic numbers in source files". The idempotent-create fix
+had introduced `ae.code == 409`, and pre-existing `== 404` / `== 429` guards were latent
+violations of the same rule. Naming them centrally makes the branches self-documenting
+and keeps the policy globally enforced.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires cluster rollout
+- [ ] Config change only
+- [x] Refactor (no behavior change)
+
 ## [2026-06-24 11:00] - Silence RUSTSEC-2026-0173 (proc-macro-error2 unmaintained) with justification
 
 **Author:** Erick Bourgeois

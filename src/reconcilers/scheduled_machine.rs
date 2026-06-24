@@ -45,9 +45,9 @@ use kube::{
 use tracing::{debug, error, info, warn, Instrument};
 
 use crate::constants::{
-    ERROR_REQUEUE_SECS, PHASE_ACTIVE, PHASE_DISABLED, PHASE_EMERGENCY_REMOVE, PHASE_ERROR,
-    PHASE_INACTIVE, PHASE_PENDING, PHASE_SHUTTING_DOWN, PHASE_TERMINATED, REASON_GRACE_PERIOD,
-    REASON_MACHINE_CREATED, REASON_MACHINE_DELETED, REASON_SCHEDULE_ACTIVE,
+    ERROR_REQUEUE_SECS, HTTP_NOT_FOUND, PHASE_ACTIVE, PHASE_DISABLED, PHASE_EMERGENCY_REMOVE,
+    PHASE_ERROR, PHASE_INACTIVE, PHASE_PENDING, PHASE_SHUTTING_DOWN, PHASE_TERMINATED,
+    REASON_GRACE_PERIOD, REASON_MACHINE_CREATED, REASON_MACHINE_DELETED, REASON_SCHEDULE_ACTIVE,
     REASON_SCHEDULE_DISABLED, REASON_SCHEDULE_INACTIVE, TIMER_REQUEUE_SECS,
 };
 use crate::crd::ScheduledMachine;
@@ -742,7 +742,7 @@ async fn check_emergency_reclaim(
     let nodes: Api<Node> = Api::all(ctx.client.clone());
     let node = match nodes.get(node_name).await {
         Ok(n) => n,
-        Err(kube::Error::Api(e)) if e.code == 404 => {
+        Err(kube::Error::Api(e)) if e.code == HTTP_NOT_FOUND => {
             debug!(
                 node = %node_name,
                 "Referenced Node not found — skipping reclaim check"
